@@ -25,6 +25,38 @@ try:
     matplotlib.use('Agg')
     import matplotlib.pyplot as plt
     from matplotlib.ticker import MaxNLocator
+    from matplotlib import font_manager
+    
+    # 配置中文字体
+    # Windows 常用中文字体
+    _chinese_fonts = [
+        'Microsoft YaHei',  # 微软雅黑
+        'SimHei',           # 黑体
+        'SimSun',           # 宋体
+        'KaiTi',            # 楷体
+        'FangSong',         # 仿宋
+        'Source Han Sans CN',  # 思源黑体
+        'Noto Sans CJK SC',    # Noto 黑体
+    ]
+    
+    _font_set = False
+    for font_name in _chinese_fonts:
+        try:
+            # 检查字体是否存在
+            font_path = font_manager.findfont(font_name, fallback_to_default=False)
+            if font_path and 'DejaVu' not in font_path:
+                plt.rcParams['font.sans-serif'] = [font_name] + plt.rcParams.get('font.sans-serif', [])
+                plt.rcParams['axes.unicode_minus'] = False  # 解决负号显示问题
+                _font_set = True
+                break
+        except Exception:
+            continue
+    
+    if not _font_set:
+        # 如果找不到中文字体，尝试使用系统字体
+        plt.rcParams['font.sans-serif'] = _chinese_fonts + plt.rcParams.get('font.sans-serif', [])
+        plt.rcParams['axes.unicode_minus'] = False
+        
 except ImportError:
     plt = None
 

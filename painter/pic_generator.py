@@ -40,6 +40,11 @@ RESOURCE_DIR = Path(__file__).parent.parent / "resources"
 
 def get_font_path(font_name: str) -> str:
     """获取字体路径"""
+    # 首先检查 resources 目录
+    font_path = RESOURCE_DIR / font_name
+    if font_path.exists():
+        return str(font_path)
+    # 尝试 fonts 子目录
     font_path = RESOURCE_DIR / "fonts" / font_name
     if font_path.exists():
         return str(font_path)
@@ -53,14 +58,16 @@ class PicGenerator:
     """
     
     # 默认配置
-    DEFAULT_FONT = "LXGWWenKai-Regular.ttf"
+    NORMAL_FONT = "normal.ttf"  # 从 StarBot 复制的中文字体
+    BOLD_FONT = "bold.ttf"      # 从 StarBot 复制的粗体字体
     COVER_MARGIN = 25
     
     def __init__(
         self,
         width: int,
         height: int,
-        font_path: Optional[str] = None
+        normal_font: Optional[str] = None,
+        bold_font: Optional[str] = None
     ):
         """
         初始化绘图器
@@ -68,7 +75,8 @@ class PicGenerator:
         Args:
             width: 画布宽度
             height: 画布高度
-            font_path: 字体路径
+            normal_font: 普通字体路径
+            bold_font: 粗体字体路径
         """
         self._width = width
         self._height = height
@@ -76,12 +84,14 @@ class PicGenerator:
         self._draw = ImageDraw.Draw(self._canvas)
         
         # 加载字体
-        font_file = font_path or get_font_path(self.DEFAULT_FONT)
+        normal_font_path = get_font_path(normal_font or self.NORMAL_FONT)
+        bold_font_path = get_font_path(bold_font or self.BOLD_FONT)
+        
         try:
-            self._chapter_font = ImageFont.truetype(font_file, 50)
-            self._section_font = ImageFont.truetype(font_file, 40)
-            self._tip_font = ImageFont.truetype(font_file, 25)
-            self._text_font = ImageFont.truetype(font_file, 30)
+            self._chapter_font = ImageFont.truetype(bold_font_path, 50)
+            self._section_font = ImageFont.truetype(bold_font_path, 40)
+            self._tip_font = ImageFont.truetype(normal_font_path, 25)
+            self._text_font = ImageFont.truetype(normal_font_path, 30)
         except Exception:
             # 使用默认字体
             self._chapter_font = ImageFont.load_default()
