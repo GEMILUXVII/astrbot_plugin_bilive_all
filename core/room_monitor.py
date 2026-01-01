@@ -177,11 +177,15 @@ class RoomMonitor:
         try:
             info = await self._live_room.get_room_play_info()
             status = info.get("live_status", 0)
+            
+            logger.info(f"[BiliLive] {self.uname} 初始直播状态: {status} (1=直播中, 0=未开播)")
+            
             await self.db.set_live_status(self.room_id, status)
             
             if status == 1:
                 start_time = info.get("live_time", int(time.time()))
                 await self.db.set_live_start_time(self.room_id, start_time)
+                logger.info(f"[BiliLive] {self.uname} 当前正在直播，已记录状态")
         except Exception as e:
             logger.error(f"[BiliLive] 初始化 {self.uname} 直播状态失败: {e}")
     
@@ -204,11 +208,16 @@ class RoomMonitor:
     
     async def _handle_live_on(self, event: Dict):
         """处理开播事件"""
+        logger.debug(f"[BiliLive] 收到 LIVE 事件: {self.uname}")
+        
         data = event.get("data", {})
         
         # 检查是否已经在直播
         current_status = await self.db.get_live_status(self.room_id)
+        logger.debug(f"[BiliLive] {self.uname} 当前状态: {current_status}")
+        
         if current_status == 1:
+            logger.debug(f"[BiliLive] {self.uname} 已在直播中，跳过开播处理")
             return
         
         # 检查是否为断线重连
@@ -270,6 +279,7 @@ class RoomMonitor:
         # 调用回调
         if self._on_live_start:
             try:
+                logger.info(f"[BiliLive] 准备调用开播回调: {self.uname}")
                 room_info = await self._live_room.get_room_info()
                 callback_data = {
                     "uname": self.uname,
@@ -279,8 +289,13 @@ class RoomMonitor:
                     "url": f"https://live.bilibili.com/{self.room_id}",
                 }
                 await self._on_live_start(self, callback_data)
+                logger.info(f"[BiliLive] 开播回调执行完成: {self.uname}")
             except Exception as e:
                 logger.error(f"[BiliLive] 开播回调失败: {e}")
+                import traceback
+                logger.error(traceback.format_exc())
+        else:
+            logger.warning(f"[BiliLive] 未设置开播回调函数!")
     
     async def _handle_live_off(self, event: Dict):
         """处理下播事件"""

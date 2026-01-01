@@ -89,20 +89,28 @@ class LiveDanmaku:
     
     async def connect(self):
         """连接到直播间"""
+        from astrbot.api import logger
+        
         if self._status != 0:
+            logger.debug(f"[BiliLive-WS] 状态不为0，跳过连接: {self._status}")
             return
         
         self._status = 1
         
         try:
+            logger.debug(f"[BiliLive-WS] 开始连接房间 {self.room_display_id}")
+            
             # 获取真实房间号
             room_info = await self._live_room.get_room_play_info()
             self.room_id = room_info.get("room_id", self.room_display_id)
+            logger.debug(f"[BiliLive-WS] 获取到真实房间号: {self.room_id}")
             
             # 获取弹幕服务器配置
             chat_conf = await self._live_room.get_chat_conf()
             host_list = chat_conf.get("host_list", [])
             token = chat_conf.get("token", "")
+            
+            logger.debug(f"[BiliLive-WS] 获取到 {len(host_list)} 个弹幕服务器")
             
             if not host_list:
                 raise Exception("无法获取弹幕服务器地址")
@@ -110,21 +118,45 @@ class LiveDanmaku:
             # 选择服务器
             host = random.choice(host_list)
             ws_url = f"wss://{host['host']}:{host['wss_port']}/sub"
+            logger.info(f"[BiliLive-WS] 正在连接到 {ws_url}")
+            headers = {
+                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+                "Origin": "https://live.bilibili.com",
+            }
+            cookies = credential_manager.get_cookies()
+            if cookies:
+                cookie_header = "; ".join([f"{k}={v}" for k, v in cookies.items()])
+                headers["Cookie"] = cookie_header
             
-            # 建立连接
-            self._session = aiohttp.ClientSession()
-            self._ws = await self._session.ws_connect(ws_url)
+            # 建立连接 (必须添加 User-Agent，否则服务器会拒绝)
+            # 设置较长的超时以防止连接被过早关闭
+            timeout = aiohttp.ClientTimeout(total=None, sock_connect=10, sock_read=None)
+            self._session = aiohttp.ClientSession(timeout=timeout)
+            self._ws = await self._session.ws_connect(
+                ws_url,
+                headers=headers,
+                # 不使用 aiohttp 内置心跳，Bilibili 使用自定义二进制心跳
+                autoping=True,  # 响应 ping 帧
+                autoclose=False,  # 不自动关闭
+                receive_timeout=None,  # 不设置接收超时
+            )
+            logger.info(f"[BiliLive-WS] WebSocket 连接成功")
             
             # 发送认证包
             await self._send_auth(token)
+            logger.debug(f"[BiliLive-WS] 已发送认证包")
             
             # 启动心跳
             self._heartbeat_task = asyncio.create_task(self._heartbeat_loop())
             
             # 开始接收消息
             asyncio.create_task(self._receive_loop())
+            logger.info(f"[BiliLive-WS] 房间 {self.room_id} 连接流程完成，等待认证响应")
             
         except Exception as e:
+            logger.error(f"[BiliLive-WS] 连接房间 {self.room_display_id} 失败: {e}")
+            import traceback
+            logger.error(traceback.format_exc())
             self._status = 0
             if self._session:
                 await self._session.close()
@@ -154,14 +186,28 @@ class LiveDanmaku:
     
     async def _send_auth(self, token: str):
         """发送认证包"""
+        # 获取凭据中的 buvid3 和 uid
+        credential = credential_manager.get_credential()
+        buvid = ""
+        uid = 0
+        if credential:
+            buvid = credential.buvid3 or ""
+            try:
+                uid = await credential_manager.get_uid()
+            except Exception:
+                uid = 0
+        
         auth_data = {
-            "uid": 0,
+            "uid": uid,
             "roomid": self.room_id,
             "protover": 3,
+            "buvid": buvid,  # 必需字段
             "platform": "web",
             "type": 2,
             "key": token,
         }
+        from astrbot.api import logger
+        logger.debug(f"[BiliLive-WS] 认证数据: roomid={self.room_id}, buvid={buvid[:10]}..." if buvid else f"[BiliLive-WS] 认证数据: roomid={self.room_id}, buvid=空")
         await self._send_packet(Operation.USER_AUTHENTICATION, json.dumps(auth_data))
     
     async def _send_packet(self, operation: Operation, data: str = ""):
@@ -175,21 +221,51 @@ class LiveDanmaku:
     
     async def _heartbeat_loop(self):
         """心跳循环"""
+        from astrbot.api import logger
+        
+        # 等待认证成功（状态变为 2）
+        while self._status == 1:
+            await asyncio.sleep(0.1)
+        
+        logger.debug(f"[BiliLive-WS] 心跳任务开始，状态: {self._status}")
+        
         while self._status == 2:
             await self._send_packet(Operation.HEARTBEAT, "")
+            logger.debug(f"[BiliLive-WS] 发送心跳包")
             await asyncio.sleep(self.HEARTBEAT_INTERVAL)
     
     async def _receive_loop(self):
         """接收消息循环"""
+        from astrbot.api import logger
+        logger.info(f"[BiliLive-WS] 开始接收消息循环 房间 {self.room_id}")
+        
         try:
             async for msg in self._ws:
                 if msg.type == aiohttp.WSMsgType.BINARY:
                     await self._parse_packet(msg.data)
                 elif msg.type == aiohttp.WSMsgType.ERROR:
+                    logger.error(f"[BiliLive-WS] WebSocket 错误: {msg.data}")
                     break
-        except Exception:
-            pass
+                elif msg.type == aiohttp.WSMsgType.CLOSING:
+                    logger.warning(f"[BiliLive-WS] WebSocket 正在关闭...")
+                elif msg.type == aiohttp.WSMsgType.CLOSED:
+                    # 获取关闭码和原因
+                    close_code = self._ws.close_code if self._ws else "unknown"
+                    logger.warning(f"[BiliLive-WS] WebSocket 已关闭, 关闭码: {close_code}")
+                    break
+                elif msg.type == aiohttp.WSMsgType.TEXT:
+                    logger.debug(f"[BiliLive-WS] 收到文本消息: {msg.data[:100]}...")
+        except asyncio.CancelledError:
+            logger.info(f"[BiliLive-WS] 接收循环被取消")
+        except Exception as e:
+            from astrbot.api import logger
+            logger.error(f"[BiliLive-WS] 接收消息异常: {e}")
+            import traceback
+            logger.error(traceback.format_exc())
         finally:
+            from astrbot.api import logger
+            close_code = self._ws.close_code if self._ws else "N/A"
+            logger.warning(f"[BiliLive-WS] 接收循环结束，当前状态: {self._status}, 关闭码: {close_code}")
             if self._status == 2:
                 # 意外断开，尝试重连
                 self._status = 0
@@ -198,6 +274,8 @@ class LiveDanmaku:
     
     async def _parse_packet(self, data: bytes):
         """解析数据包"""
+        from astrbot.api import logger
+        
         offset = 0
         while offset < len(data):
             # 解析包头
@@ -206,6 +284,7 @@ class LiveDanmaku:
             offset += packet_len
             
             if operation == Operation.CONNECT_SUCCESS.value:
+                logger.info(f"[BiliLive-WS] 收到认证成功响应! 房间 {self.room_id}")
                 self._status = 2
                 self.dispatch("VERIFICATION_SUCCESSFUL", {})
                 

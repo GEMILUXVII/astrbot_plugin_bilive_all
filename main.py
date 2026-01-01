@@ -86,7 +86,10 @@ class BiliLivePlugin(Star):
             
             if sessdata and bili_jct:
                 set_credential(sessdata, bili_jct, buvid3)
-                logger.info(f"[BiliLive] 已加载 B站凭据 (SESSDATA: {sessdata[:10]}...)")
+                buvid_status = f"buvid3: {buvid3[:8]}..." if buvid3 else "buvid3: 未配置!"
+                logger.info(f"[BiliLive] 已加载 B站凭据 (SESSDATA: {sessdata[:10]}..., {buvid_status})")
+                if not buvid3:
+                    logger.warning("[BiliLive] 警告: buvid3 未配置，WebSocket连接可能失败!")
             else:
                 logger.warning("[BiliLive] 未配置 B站凭据，部分功能可能受限")
             
