@@ -6,9 +6,8 @@ import asyncio
 from pathlib import Path
 from typing import Dict, Optional
 
-from astrbot.api import logger
-from astrbot.api.event import AstrMessageEvent, MessageEventResult
-from astrbot.api.event.filter import command, event_message_type, EventMessageType
+from astrbot.api import AstrBotConfig, logger
+from astrbot.api.event import AstrMessageEvent, filter
 from astrbot.api.message_components import Plain, Image
 from astrbot.api.star import Context, Star, register
 
@@ -81,11 +80,15 @@ class BiliLivePlugin(Star):
             await self.db.init()
             
             # 设置凭据
-            sessdata = self.config.get("sessdata", "")
-            bili_jct = self.config.get("bili_jct", "")
-            buvid3 = self.config.get("buvid3", "")
+            sessdata = self.config.get("sessdata", "") if self.config else ""
+            bili_jct = self.config.get("bili_jct", "") if self.config else ""
+            buvid3 = self.config.get("buvid3", "") if self.config else ""
+            
             if sessdata and bili_jct:
                 set_credential(sessdata, bili_jct, buvid3)
+                logger.info(f"[BiliLive] 已加载 B站凭据 (SESSDATA: {sessdata[:10]}...)")
+            else:
+                logger.warning("[BiliLive] 未配置 B站凭据，部分功能可能受限")
             
             # 加载已保存的房间配置
             await self._load_rooms()
@@ -227,60 +230,42 @@ class BiliLivePlugin(Star):
             except Exception as e:
                 logger.error(f"[BiliLive] 报告推送失败: {e}")
     
-    @command("bilive")
-    async def bilive_cmd(self, event: AstrMessageEvent, action: str = None, *args):
-        """
-        /bilive <action> [args...]
-        
-        Actions:
-        - add <uid> - 添加监控
-        - remove <uid> - 移除监控
-        - list - 列出监控
-        - status - 查看状态
-        """
-        if action is None:
-            yield event.plain_result(self._get_help())
-            return
-        
-        action = action.lower()
-        
-        if action == "add":
-            yield event.plain_result(await self._cmd_add(event, args))
-        elif action == "remove":
-            yield event.plain_result(await self._cmd_remove(args))
-        elif action == "list":
-            yield event.plain_result(self._cmd_list())
-        elif action == "status":
-            yield event.plain_result(self._cmd_status())
-        else:
-            yield event.plain_result(f"未知操作: {action}\n\n{self._get_help()}")
-    
     def _get_help(self) -> str:
         """获取帮助信息"""
-        return """B站直播监控插件
+        return """📺 B站直播监控插件
 
 命令：
-/bilive add <uid> - 添加主播监控
-/bilive remove <uid> - 移除主播监控
-/bilive list - 列出监控中的主播
-/bilive status - 查看插件状态"""
+/bilive_add <UID> - 添加主播监控
+/bilive_rm <UID> - 移除主播监控
+/bilive_list - 列出监控中的主播
+/bilive_status - 查看插件状态
+/bilive_help - 显示此帮助"""
     
-    async def _cmd_add(self, event: AstrMessageEvent, args) -> str:
-        """添加监控"""
-        if not args:
-            return "请指定主播 UID\n用法: /bilive add <uid>"
+    @filter.command("bilive_add")
+    async def cmd_add(self, event: AstrMessageEvent, uid: str = None):
+        """
+        添加主播监控
+        
+        用法: /bilive_add <UID>
+        示例: /bilive_add 403039446
+        """
+        if uid is None:
+            yield event.plain_result("请指定主播 UID\n用法: /bilive_add <UID>\n示例: /bilive_add 403039446")
+            return
         
         try:
-            uid = int(args[0])
+            uid_int = int(uid)
         except ValueError:
-            return "UID 必须是数字"
+            yield event.plain_result("❌ UID 必须是数字")
+            return
         
-        if uid in self.monitors:
-            return f"UID {uid} 已在监控中"
+        if uid_int in self.monitors:
+            yield event.plain_result(f"⚠️ UID {uid_int} 已在监控中")
+            return
         
         # 获取发送者信息作为推送目标
         sender_id = event.get_sender_id()
-        group_id = event.message_obj.group_id if hasattr(event.message_obj, 'group_id') else None
+        group_id = event.get_group_id()
         
         targets = []
         if group_id:
@@ -300,51 +285,74 @@ class BiliLivePlugin(Star):
                 live_report=LiveReport.default(),
             ))
         
-        config = RoomConfig(uid=uid, targets=targets)
+        config = RoomConfig(uid=uid_int, targets=targets)
+        
+        yield event.plain_result(f"⏳ 正在添加监控 UID {uid_int}...")
+        
         success = await self._add_monitor(config)
         
         if success:
-            monitor = self.monitors.get(uid)
-            return f"✅ 已添加监控: {monitor.uname} (UID: {uid}, 房间号: {monitor.room_id})"
+            monitor = self.monitors.get(uid_int)
+            yield event.plain_result(f"✅ 已添加监控: {monitor.uname} (UID: {uid_int}, 房间号: {monitor.room_id})")
         else:
-            return f"❌ 添加监控失败: UID {uid}"
+            yield event.plain_result(f"❌ 添加监控失败: UID {uid_int}")
     
-    async def _cmd_remove(self, args) -> str:
-        """移除监控"""
-        if not args:
-            return "请指定主播 UID\n用法: /bilive remove <uid>"
+    @filter.command("bilive_rm")
+    async def cmd_remove(self, event: AstrMessageEvent, uid: str = None):
+        """
+        移除主播监控
+        
+        用法: /bilive_rm <UID>
+        示例: /bilive_rm 403039446
+        """
+        if uid is None:
+            yield event.plain_result("请指定主播 UID\n用法: /bilive_rm <UID>")
+            return
         
         try:
-            uid = int(args[0])
+            uid_int = int(uid)
         except ValueError:
-            return "UID 必须是数字"
+            yield event.plain_result("❌ UID 必须是数字")
+            return
         
-        if uid not in self.monitors:
-            return f"UID {uid} 不在监控中"
+        if uid_int not in self.monitors:
+            yield event.plain_result(f"⚠️ UID {uid_int} 不在监控中")
+            return
         
-        monitor = self.monitors.get(uid)
-        uname = monitor.uname if monitor else uid
+        monitor = self.monitors.get(uid_int)
+        uname = monitor.uname if monitor else uid_int
         
-        success = await self._remove_monitor(uid)
+        success = await self._remove_monitor(uid_int)
         if success:
-            return f"✅ 已移除监控: {uname} (UID: {uid})"
+            yield event.plain_result(f"✅ 已移除监控: {uname} (UID: {uid_int})")
         else:
-            return f"❌ 移除监控失败: UID {uid}"
+            yield event.plain_result(f"❌ 移除监控失败: UID {uid_int}")
     
-    def _cmd_list(self) -> str:
-        """列出监控"""
+    @filter.command("bilive_list")
+    async def cmd_list(self, event: AstrMessageEvent):
+        """
+        列出监控中的主播
+        
+        用法: /bilive_list
+        """
         if not self.monitors:
-            return "📺 当前没有监控任何主播"
+            yield event.plain_result("📺 当前没有监控任何主播")
+            return
         
         lines = ["📺 监控列表:"]
         for uid, monitor in self.monitors.items():
             status = "🟢 连接中" if monitor.status == 2 else "🔴 断开"
             lines.append(f"  • {monitor.uname} (UID: {uid}) {status}")
         
-        return "\n".join(lines)
+        yield event.plain_result("\n".join(lines))
     
-    def _cmd_status(self) -> str:
-        """查看状态"""
+    @filter.command("bilive_status")
+    async def cmd_status(self, event: AstrMessageEvent):
+        """
+        查看插件状态
+        
+        用法: /bilive_status
+        """
         lines = ["📊 BiliLive 插件状态:"]
         lines.append(f"  • 监控数量: {len(self.monitors)}")
         lines.append(f"  • 数据库: {'✅ 已连接' if self.db else '❌ 未连接'}")
@@ -352,7 +360,12 @@ class BiliLivePlugin(Star):
         connected = sum(1 for m in self.monitors.values() if m.status == 2)
         lines.append(f"  • 连接数: {connected}/{len(self.monitors)}")
         
-        return "\n".join(lines)
+        yield event.plain_result("\n".join(lines))
+    
+    @filter.command("bilive_help")
+    async def cmd_help(self, event: AstrMessageEvent):
+        """显示帮助信息"""
+        yield event.plain_result(self._get_help())
     
     async def terminate(self):
         """插件终止"""
@@ -367,3 +380,4 @@ class BiliLivePlugin(Star):
             await self.db.close()
         
         logger.info("[BiliLive] 插件已关闭")
+

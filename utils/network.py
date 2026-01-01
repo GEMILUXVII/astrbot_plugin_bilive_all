@@ -3,6 +3,7 @@ Network utilities for Bilibili API requests
 Ported from StarBot with simplifications
 """
 
+import asyncio
 import aiohttp
 from typing import Dict, Any, Optional
 
@@ -34,6 +35,7 @@ async def request(
     params: Optional[Dict[str, Any]] = None,
     data: Optional[Dict[str, Any]] = None,
     credential: Optional[CredentialManager] = None,
+    max_retries: int = 3,
     **kwargs
 ) -> Dict[str, Any]:
     """
@@ -45,6 +47,7 @@ async def request(
         params: URL 参数
         data: POST 数据
         credential: 凭据管理器
+        max_retries: 最大重试次数
         
     Returns:
         API 返回的 data 字段
@@ -60,22 +63,45 @@ async def request(
     if credential:
         cookies = credential.get_cookies()
     
-    async with session.request(
-        method=method,
-        url=url,
-        params=params,
-        data=data,
-        headers=headers,
-        cookies=cookies,
-        **kwargs
-    ) as resp:
-        resp.raise_for_status()
-        result = await resp.json()
-        
-        if result.get("code") != 0:
-            raise APIException(result.get("code", -1), result.get("message", "Unknown error"))
-        
-        return result.get("data", {})
+    last_exception = None
+    
+    for attempt in range(max_retries):
+        try:
+            async with session.request(
+                method=method,
+                url=url,
+                params=params,
+                data=data,
+                headers=headers,
+                cookies=cookies,
+                **kwargs
+            ) as resp:
+                resp.raise_for_status()
+                result = await resp.json()
+                
+                code = result.get("code", 0)
+                
+                # 频率限制错误，需要重试
+                if code == -799:
+                    last_exception = APIException(code, result.get("message", "请求过于频繁"))
+                    wait_time = (attempt + 1) * 2  # 2, 4, 6 秒
+                    await asyncio.sleep(wait_time)
+                    continue
+                
+                if code != 0:
+                    raise APIException(code, result.get("message", "Unknown error"))
+                
+                return result.get("data", {})
+                
+        except aiohttp.ClientError as e:
+            last_exception = e
+            await asyncio.sleep(1)
+            continue
+    
+    # 所有重试都失败
+    if last_exception:
+        raise last_exception
+    raise APIException(-1, "请求失败")
 
 
 async def download_image(url: str) -> bytes:

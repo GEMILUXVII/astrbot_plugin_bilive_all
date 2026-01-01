@@ -40,7 +40,39 @@ API = {
         "url": "https://api.live.bilibili.com/xlive/web-room/v1/index/getDanmuInfo",
         "method": "GET",
     },
+    # 通过 UID 获取直播间信息
+    "space_info": {
+        "url": "https://api.bilibili.com/x/space/acc/info",
+        "method": "GET",
+    },
 }
+
+
+async def get_room_id_by_uid(uid: int) -> Dict[str, Any]:
+    """
+    通过 UID 获取直播间信息
+    
+    Args:
+        uid: 用户 UID
+        
+    Returns:
+        包含 room_id 和 uname 的字典
+    """
+    api = API["space_info"]
+    params = {"mid": uid}
+    data = await request(api["method"], api["url"], params=params, credential=credential_manager)
+    
+    room_id = data.get("live_room", {}).get("roomid", 0)
+    uname = data.get("name", "")
+    live_status = data.get("live_room", {}).get("liveStatus", 0)
+    
+    return {
+        "room_id": room_id,
+        "uname": uname,
+        "live_status": live_status,
+        "uid": uid,
+    }
+
 
 
 class LiveRoom:
@@ -140,9 +172,14 @@ class LiveRoom:
         """
         获取弹幕服务器配置信息
         """
+        from ..utils.wbi import sign_params
+        
         api = API["chat_conf"]
         params = {
             "id": await self.get_real_room_id(),
             "type": 0
         }
-        return await request(api["method"], api["url"], params=params, credential=credential_manager)
+        # 对参数进行 wbi 签名
+        signed_params = await sign_params(params)
+        return await request(api["method"], api["url"], params=signed_params, credential=credential_manager)
+

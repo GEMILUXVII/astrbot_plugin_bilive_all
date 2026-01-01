@@ -11,7 +11,7 @@ from typing import Optional, Dict, Any, Callable, Awaitable, TYPE_CHECKING
 from astrbot.api import logger
 
 from .live_danmaku import LiveDanmaku
-from .live_room import LiveRoom
+from .live_room import LiveRoom, get_room_id_by_uid
 from .models import RoomConfig, LiveReport
 from ..storage.stats_db import StatsDB
 
@@ -78,18 +78,24 @@ class RoomMonitor:
         self._connecting = True
         
         try:
-            # 获取主播信息
-            if not self.room_id or not self.uname:
-                self._live_room = LiveRoom(self.config.uid if not self.room_id else self.room_id)
-                info = await self._live_room.get_room_play_info()
-                self.room_id = info.get("room_id")
-                
-                user_info = await self._live_room.get_user_info(self.config.uid)
-                self.uname = user_info.get("info", {}).get("uname", f"UID:{self.config.uid}")
-            
+            # 如果没有 room_id，通过 UID 获取
             if not self.room_id:
-                logger.error(f"[BiliLive] 获取 {self.uname} 的房间号失败")
-                return False
+                logger.info(f"[BiliLive] 正在通过 UID {self.config.uid} 获取直播间信息...")
+                user_info = await get_room_id_by_uid(self.config.uid)
+                
+                self.room_id = user_info.get("room_id")
+                self.uname = user_info.get("uname") or f"UID:{self.config.uid}"
+                
+                if not self.room_id:
+                    logger.error(f"[BiliLive] 用户 {self.uname} ({self.config.uid}) 没有直播间")
+                    return False
+                
+                logger.info(f"[BiliLive] 获取到 {self.uname} 的直播间: {self.room_id}")
+            
+            # 如果没有 uname，获取用户信息
+            if not self.uname:
+                user_info = await get_room_id_by_uid(self.config.uid)
+                self.uname = user_info.get("uname") or f"UID:{self.config.uid}"
             
             # 创建 WebSocket 客户端
             self._danmaku = LiveDanmaku(self.room_id)

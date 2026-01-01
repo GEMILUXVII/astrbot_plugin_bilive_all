@@ -1,0 +1,110 @@
+{
+  "sessdata": {
+    "type": "string",
+    "description": "B站SESSDATA",
+    "hint": "从浏览器Cookie获取，用于获取更多直播间信息（可选）",
+    "default": ""
+  },
+  "bili_jct": {
+    "type": "string",
+    "description": "B站bili_jct",
+    "hint": "从浏览器Cookie获取，与SESSDATA配合使用（可选）",
+    "default": ""
+  },
+  "buvid3": {
+    "type": "string",
+    "description": "B站buvid3",
+    "hint": "从浏览器Cookie获取（可选）",
+    "default": ""
+  },
+  "live_on_enabled": {
+    "type": "bool",
+    "description": "默认启用开播通知",
+    "hint": "新添加的监控是否默认开启开播通知",
+    "default": true
+  },
+  "live_off_enabled": {
+    "type": "bool",
+    "description": "默认启用下播通知",
+    "hint": "新添加的监控是否默认开启下播通知",
+    "default": true
+  },
+  "live_report_enabled": {
+    "type": "bool",
+    "description": "默认启用直播报告",
+    "hint": "新添加的监控是否默认开启直播数据报告",
+    "default": true
+  },
+  "live_on_message": {
+    "type": "string",
+    "description": "开播通知模板",
+    "hint": "可用占位符: {uname} {title} {url} {cover}",
+    "default": "{uname} 正在直播 {title}\n{url}"
+  },
+  "live_off_message": {
+    "type": "string",
+    "description": "下播通知模板",
+    "hint": "可用占位符: {uname}",
+    "default": "{uname} 直播结束了"
+  },
+  "report_fans_change": {
+    "type": "bool",
+    "description": "报告显示粉丝变动",
+    "hint": "直播报告中是否显示粉丝数变化",
+    "default": true
+  },
+  "report_danmu": {
+    "type": "bool",
+    "description": "报告显示弹幕统计",
+    "hint": "直播报告中是否显示弹幕数量",
+    "default": true
+  },
+  "report_gift": {
+    "type": "bool",
+    "description": "报告显示礼物统计",
+    "hint": "直播报告中是否显示礼物收益",
+    "default": true
+  },
+  "report_sc": {
+    "type": "bool",
+    "description": "报告显示SC统计",
+    "hint": "直播报告中是否显示SC收益",
+    "default": true
+  },
+  "report_guard": {
+    "type": "bool",
+    "description": "报告显示大航海",
+    "hint": "直播报告中是否显示大航海开通数",
+    "default": true
+  },
+  "report_ranking": {
+    "type": "int",
+    "description": "排行榜显示数量",
+    "hint": "各排行榜显示前N名，0为不显示",
+    "default": 3
+  },
+  "report_wordcloud": {
+    "type": "bool",
+    "description": "报告显示弹幕词云",
+    "hint": "直播报告中是否生成弹幕词云",
+    "default": true
+  },
+  "report_diagram": {
+    "type": "bool",
+    "description": "报告显示互动曲线",
+    "hint": "直播报告中是否显示互动曲线图",
+    "default": true
+  },
+  "buffer_flush_interval": {
+    "type": "int",
+    "description": "数据刷新间隔(秒)",
+    "hint": "统计数据写入数据库的间隔，较短则更实时但IO更高",
+    "default": 5
+  },
+  "debug_mode": {
+    "type": "bool",
+    "description": "调试模式",
+    "hint": "开启后输出详细调试日志",
+    "default": false
+  }
+}
