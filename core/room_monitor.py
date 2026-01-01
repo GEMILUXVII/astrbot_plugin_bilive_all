@@ -59,6 +59,12 @@ class RoomMonitor:
         self._live_room: Optional[LiveRoom] = None
         self._connecting = False
         self._is_reconnect = False
+        self._last_live_push_time: Optional[int] = None
+        
+        # 防止重复 LIVE 事件处理的锁
+        self._live_event_lock = asyncio.Lock()
+        # 内存中的直播状态标志（用于快速去重）
+        self._is_live = False
     
     @property
     def uid(self) -> int:
@@ -182,6 +188,9 @@ class RoomMonitor:
             
             await self.db.set_live_status(self.room_id, status)
             
+            # 同步内存标志
+            self._is_live = (status == 1)
+            
             if status == 1:
                 start_time = info.get("live_time", int(time.time()))
                 await self.db.set_live_start_time(self.room_id, start_time)
@@ -208,22 +217,43 @@ class RoomMonitor:
     
     async def _handle_live_on(self, event: Dict):
         """处理开播事件"""
-        logger.debug(f"[BiliLive] 收到 LIVE 事件: {self.uname}")
-        
-        data = event.get("data", {})
-        
-        # 检查是否已经在直播
-        current_status = await self.db.get_live_status(self.room_id)
-        logger.debug(f"[BiliLive] {self.uname} 当前状态: {current_status}")
-        
-        if current_status == 1:
-            logger.debug(f"[BiliLive] {self.uname} 已在直播中，跳过开播处理")
+        # 快速去重：使用内存标志
+        if self._is_live:
+            logger.debug(f"[BiliLive] {self.uname} 已在直播中（内存标志），跳过")
             return
+        
+        # 使用锁防止并发处理
+        async with self._live_event_lock:
+            # 再次检查（以防在等待锁期间事件已被处理）
+            if self._is_live:
+                logger.debug(f"[BiliLive] {self.uname} 已在直播中（锁内检查），跳过")
+                return
+            
+            logger.debug(f"[BiliLive] 收到 LIVE 事件: {self.uname}")
+            
+            data = event.get("data", {})
+            
+            # 检查数据库中的状态
+            current_status = await self.db.get_live_status(self.room_id)
+            logger.debug(f"[BiliLive] {self.uname} 当前状态: {current_status}")
+            
+            if current_status == 1:
+                self._is_live = True  # 同步内存标志
+                logger.debug(f"[BiliLive] {self.uname} 已在直播中，跳过开播处理")
+                return
+            
+            # 设置内存标志（在锁内，防止其他协程进入）
+            self._is_live = True
         
         # 检查是否为断线重连
         now = int(time.time())
         last_end = await self.db.get_live_end_time(self.room_id)
-        is_reconnect = (now - last_end) <= self.RECONNECT_THRESHOLD
+        is_reconnect = (
+            last_end != 0
+            and (now - last_end) <= self.RECONNECT_THRESHOLD
+            and self._last_live_push_time is not None
+            and (now - self._last_live_push_time) <= self.RECONNECT_THRESHOLD
+        )
         
         if is_reconnect:
             logger.info(f"[BiliLive] {self.uname} 断线重连")
@@ -252,6 +282,9 @@ class RoomMonitor:
         
         # 重置统计数据
         await self.db.reset_room_stats(self.room_id)
+
+        # 记录最近一次开播推送时间，用于抑制极短时间内的重复 LIVE 事件
+        self._last_live_push_time = now
         
         # 获取开播时的基础数据
         fans_before = -1
@@ -303,6 +336,9 @@ class RoomMonitor:
         current_status = await self.db.get_live_status(self.room_id)
         if current_status != 1:
             return
+        
+        # 重置内存标志
+        self._is_live = False
         
         logger.info(f"[BiliLive] [下播] {self.uname} ({self.room_id})")
         

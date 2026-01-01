@@ -4,6 +4,7 @@ Ported from StarBot's live.py with simplifications
 """
 
 import json
+import time
 from typing import Dict, Any, Optional
 
 from ..utils.network import request
@@ -48,16 +49,19 @@ API = {
 }
 
 
+_space_info_cache: Dict[int, tuple] = {}
+SPACE_INFO_TTL = 30  # seconds
+
+
 async def get_room_id_by_uid(uid: int) -> Dict[str, Any]:
     """
-    通过 UID 获取直播间信息
-    
-    Args:
-        uid: 用户 UID
-        
-    Returns:
-        包含 room_id 和 uname 的字典
+    通过 UID 获取直播间信息（带短期缓存，减轻频率限制）
     """
+    now = time.time()
+    cached = _space_info_cache.get(uid)
+    if cached and (now - cached[1]) < SPACE_INFO_TTL:
+        return cached[0]
+    
     api = API["space_info"]
     params = {"mid": uid}
     data = await request(api["method"], api["url"], params=params, credential=credential_manager)
@@ -65,14 +69,19 @@ async def get_room_id_by_uid(uid: int) -> Dict[str, Any]:
     room_id = data.get("live_room", {}).get("roomid", 0)
     uname = data.get("name", "")
     live_status = data.get("live_room", {}).get("liveStatus", 0)
-    
-    return {
+    result = {
         "room_id": room_id,
         "uname": uname,
         "live_status": live_status,
         "uid": uid,
     }
+    _space_info_cache[uid] = (result, now)
+    return result
 
+
+
+_room_play_cache: Dict[int, tuple] = {}
+ROOM_PLAY_TTL = 20  # seconds
 
 
 class LiveRoom:
@@ -93,13 +102,30 @@ class LiveRoom:
         """
         获取房间信息（真实房间号，直播状态等）
         """
+        now = time.time()
+        cached = _room_play_cache.get(self.room_display_id)
+        if cached and (now - cached[1]) < ROOM_PLAY_TTL:
+            data = cached[0]
+            self.room_id = data.get("room_id", self.room_display_id)
+            self.uid = data.get("uid")
+            return data
+        
         api = API["room_play_info"]
-        params = {"room_id": self.room_display_id}
+        # B站接口要求指定平台/协议等参数，否则可能返回 1002002 参数错误
+        params = {
+            "room_id": self.room_display_id,
+            "protocol": "0,1",  # 0=http-flv,1=ws
+            "format": "0,1,2",   # 包含 flv、rtmp、m3u8
+            "codec": "0,1",      # avc(0), hevc(1)
+            "platform": "web",
+            "ptype": 8,
+        }
         data = await request(api["method"], api["url"], params=params, credential=credential_manager)
         
         # 缓存真实房间号和主播 UID
         self.room_id = data.get("room_id", self.room_display_id)
         self.uid = data.get("uid")
+        _room_play_cache[self.room_display_id] = (data, now)
         
         return data
     

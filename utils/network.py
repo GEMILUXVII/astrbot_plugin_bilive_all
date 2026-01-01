@@ -5,6 +5,7 @@ Ported from StarBot with simplifications
 
 import asyncio
 import aiohttp
+import random
 from typing import Dict, Any, Optional
 
 from .credential import CredentialManager
@@ -35,7 +36,7 @@ async def request(
     params: Optional[Dict[str, Any]] = None,
     data: Optional[Dict[str, Any]] = None,
     credential: Optional[CredentialManager] = None,
-    max_retries: int = 3,
+    max_retries: int = 5,
     **kwargs
 ) -> Dict[str, Any]:
     """
@@ -81,10 +82,12 @@ async def request(
                 
                 code = result.get("code", 0)
                 
-                # 频率限制错误，需要重试
+                # 频率限制错误，需要退避重试
                 if code == -799:
                     last_exception = APIException(code, result.get("message", "请求过于频繁"))
-                    wait_time = (attempt + 1) * 2  # 2, 4, 6 秒
+                    base = min((attempt + 1) * 2, 15)
+                    jitter = random.uniform(0.8, 1.4)
+                    wait_time = base * jitter
                     await asyncio.sleep(wait_time)
                     continue
                 
@@ -95,7 +98,7 @@ async def request(
                 
         except aiohttp.ClientError as e:
             last_exception = e
-            await asyncio.sleep(1)
+            await asyncio.sleep(1 + random.uniform(0, 0.5))
             continue
     
     # 所有重试都失败

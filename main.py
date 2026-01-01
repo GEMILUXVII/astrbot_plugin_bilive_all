@@ -8,6 +8,7 @@ from typing import Dict, Optional
 
 from astrbot.api import AstrBotConfig, logger
 from astrbot.api.event import AstrMessageEvent, filter
+from astrbot.api.event import MessageEventResult
 from astrbot.api.message_components import Plain, Image
 from astrbot.api.star import Context, Star, register
 
@@ -93,8 +94,11 @@ class BiliLivePlugin(Star):
             else:
                 logger.warning("[BiliLive] 未配置 B站凭据，部分功能可能受限")
             
-            # 加载已保存的房间配置
+            # 加载已保存的房间配置（从配置文件）
             await self._load_rooms()
+            
+            # 加载持久化存储的房间订阅
+            await self._load_saved_rooms()
             
             logger.info("[BiliLive] 插件初始化完成")
             
@@ -135,8 +139,13 @@ class BiliLivePlugin(Star):
             except Exception as e:
                 logger.error(f"[BiliLive] 加载房间配置失败: {e}")
     
-    async def _add_monitor(self, config: RoomConfig):
-        """添加房间监控"""
+    async def _add_monitor(self, config: RoomConfig, save_to_db: bool = False):
+        """添加房间监控
+        
+        Args:
+            config: 房间配置
+            save_to_db: 是否保存到数据库（手动添加时为 True）
+        """
         if config.uid in self.monitors:
             logger.warning(f"[BiliLive] 房间 {config.uid} 已在监控中")
             return False
@@ -151,17 +160,102 @@ class BiliLivePlugin(Star):
         success = await monitor.connect()
         if success:
             self.monitors[config.uid] = monitor
+            # 更新 config 中的房间信息
+            config.room_id = monitor.room_id
+            config.uname = monitor.uname
+            # 保存到数据库
+            if save_to_db:
+                await self._save_room_config(config)
             return True
         return False
     
-    async def _remove_monitor(self, uid: int):
-        """移除房间监控"""
+    async def _remove_monitor(self, uid: int, delete_from_db: bool = False):
+        """移除房间监控
+        
+        Args:
+            uid: 主播 UID
+            delete_from_db: 是否从数据库删除（手动删除时为 True）
+        """
         if uid not in self.monitors:
             return False
         
         monitor = self.monitors.pop(uid)
         await monitor.disconnect()
+        
+        # 从数据库删除
+        if delete_from_db:
+            await self._delete_room_config(uid)
         return True
+    
+    def _build_session_id(self, target: PushTarget) -> str:
+        """构建 AstrBot 格式的会话 ID"""
+        # 使用 'default' 作为平台 ID（这是 aiocqhttp 适配器的默认 ID）
+        if target.type == PushType.Group:
+            return f"default:GroupMessage:{target.id}"
+        else:
+            return f"default:FriendMessage:{target.id}"
+    
+    async def _save_room_config(self, config: RoomConfig):
+        """保存房间配置到数据库"""
+        if not self.db:
+            return
+        try:
+            import json
+            targets_json = json.dumps([{
+                "id": t.id,
+                "type": t.type.value,
+                "live_on": t.live_on.enabled,
+                "live_off": t.live_off.enabled,
+                "live_report": t.live_report.enabled,
+            } for t in config.targets])
+            
+            await self.db._conn.execute("""
+                INSERT OR REPLACE INTO room_subscriptions (uid, room_id, uname, targets)
+                VALUES (?, ?, ?, ?)
+            """, (config.uid, config.room_id, config.uname, targets_json))
+            await self.db._conn.commit()
+            logger.info(f"[BiliLive] 已保存房间配置: {config.uname} (UID: {config.uid})")
+        except Exception as e:
+            logger.error(f"[BiliLive] 保存房间配置失败: {e}")
+    
+    async def _delete_room_config(self, uid: int):
+        """从数据库删除房间配置"""
+        if not self.db:
+            return
+        try:
+            await self.db._conn.execute("DELETE FROM room_subscriptions WHERE uid = ?", (uid,))
+            await self.db._conn.commit()
+            logger.info(f"[BiliLive] 已删除房间配置: UID {uid}")
+        except Exception as e:
+            logger.error(f"[BiliLive] 删除房间配置失败: {e}")
+    
+    async def _load_saved_rooms(self):
+        """从数据库加载保存的房间配置"""
+        if not self.db:
+            return
+        try:
+            import json
+            async with self.db._conn.execute("SELECT uid, room_id, uname, targets FROM room_subscriptions") as cursor:
+                rows = await cursor.fetchall()
+                for row in rows:
+                    uid, room_id, uname, targets_json = row
+                    targets_data = json.loads(targets_json) if targets_json else []
+                    
+                    targets = []
+                    for t in targets_data:
+                        targets.append(PushTarget(
+                            id=t["id"],
+                            type=PushType.Group if t.get("type", 1) == 1 else PushType.Friend,
+                            live_on=LiveOn(enabled=t.get("live_on", True)),
+                            live_off=LiveOff(enabled=t.get("live_off", True)),
+                            live_report=LiveReport(enabled=t.get("live_report", True)),
+                        ))
+                    
+                    config = RoomConfig(uid=uid, room_id=room_id, uname=uname, targets=targets)
+                    logger.info(f"[BiliLive] 加载保存的房间: {uname} (UID: {uid})")
+                    await self._add_monitor(config)
+        except Exception as e:
+            logger.error(f"[BiliLive] 加载保存的房间失败: {e}")
     
     async def _on_live_start(self, monitor: RoomMonitor, data: Dict):
         """开播事件回调"""
@@ -169,23 +263,35 @@ class BiliLivePlugin(Star):
         
         for target in monitor.config.get_enabled_targets("live_on"):
             try:
-                # 构建消息
-                message = target.live_on.message.format(
-                    uname=data.get("uname", ""),
-                    title=data.get("title", ""),
-                    url=data.get("url", ""),
-                    cover=f"[CQ:image,file={data.get('cover', '')}]" if data.get("cover") else "",
+                # 构建消息（不包含封面，封面单独处理）
+                uname = data.get("uname", "")
+                title = data.get("title", "")
+                url = data.get("url", "")
+                cover_url = data.get("cover", "")
+                
+                # 消息模板处理（移除 {cover} 占位符，因为要用 Image 组件发送）
+                message_template = target.live_on.message
+                # 如果模板包含 {cover}，移除它（我们会单独发送图片）
+                message_template = message_template.replace("{cover}", "")
+                
+                message = message_template.format(
+                    uname=uname,
+                    title=title,
+                    url=url,
                 )
                 
-                # 发送消息
+                # 构建会话 ID
+                session_id = self._build_session_id(target)
+                
                 result = MessageEventResult()
-                result.chain = [Plain(message)]
+                result.chain.append(Plain(message.strip()))
                 
-                await self.context.send_message(
-                    target_id=str(target.id),
-                    platform="qq",  # 根据实际平台调整
-                    message_chain=result,
-                )
+                # 如果有封面，添加 Image 组件
+                if cover_url:
+                    result.chain.append(Image.fromURL(cover_url))
+                
+                await self.context.send_message(session_id, result)
+                logger.info(f"[BiliLive] 开播推送成功: {session_id}")
                 
             except Exception as e:
                 logger.error(f"[BiliLive] 开播推送失败: {e}")
@@ -204,14 +310,11 @@ class BiliLivePlugin(Star):
                     uname=data.get("uname", ""),
                 )
                 
-                result = MessageEventResult()
-                result.chain = [Plain(message)]
+                session_id = self._build_session_id(target)
                 
-                await self.context.send_message(
-                    target_id=str(target.id),
-                    platform="qq",
-                    message_chain=result,
-                )
+                result = MessageEventResult()
+                result.chain.append(Plain(message))
+                await self.context.send_message(session_id, result)
                 
             except Exception as e:
                 logger.error(f"[BiliLive] 下播推送失败: {e}")
@@ -221,14 +324,11 @@ class BiliLivePlugin(Star):
             try:
                 report_b64 = LiveReportGenerator.generate(report_param, target.live_report)
                 
-                result = MessageEventResult()
-                result.chain = [Image.fromBase64(report_b64)]
+                session_id = self._build_session_id(target)
                 
-                await self.context.send_message(
-                    target_id=str(target.id),
-                    platform="qq",
-                    message_chain=result,
-                )
+                result = MessageEventResult()
+                result.chain.append(Image.fromBase64(report_b64))
+                await self.context.send_message(session_id, result)
                 
             except Exception as e:
                 logger.error(f"[BiliLive] 报告推送失败: {e}")
@@ -292,7 +392,7 @@ class BiliLivePlugin(Star):
         
         yield event.plain_result(f"⏳ 正在添加监控 UID {uid_int}...")
         
-        success = await self._add_monitor(config)
+        success = await self._add_monitor(config, save_to_db=True)
         
         if success:
             monitor = self.monitors.get(uid_int)
@@ -325,7 +425,7 @@ class BiliLivePlugin(Star):
         monitor = self.monitors.get(uid_int)
         uname = monitor.uname if monitor else uid_int
         
-        success = await self._remove_monitor(uid_int)
+        success = await self._remove_monitor(uid_int, delete_from_db=True)
         if success:
             yield event.plain_result(f"✅ 已移除监控: {uname} (UID: {uid_int})")
         else:

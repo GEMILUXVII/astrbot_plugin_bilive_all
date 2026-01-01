@@ -284,6 +284,14 @@ class StatsDB:
             -- 创建索引
             CREATE INDEX IF NOT EXISTS idx_danmu_texts_room ON danmu_texts(room_id);
             CREATE INDEX IF NOT EXISTS idx_time_stats_room_type ON time_stats(room_id, stat_type);
+            
+            -- 房间订阅配置（持久化存储）
+            CREATE TABLE IF NOT EXISTS room_subscriptions (
+                uid INTEGER PRIMARY KEY,
+                room_id INTEGER,
+                uname TEXT,
+                targets TEXT
+            );
         """)
         await self._conn.commit()
     
