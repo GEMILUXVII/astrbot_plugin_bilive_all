@@ -30,7 +30,7 @@ API = {
         "method": "GET",
     },
     "fans_medal_info": {
-        "url": "https://api.live.bilibili.com/xlive/app-ucenter/v1/fansMedal/fans",
+        "url": "https://api.live.bilibili.com/xlive/app-ucenter/v1/fansMedal/fans_medal_info",
         "method": "GET",
     },
     "guards_info": {
@@ -171,9 +171,10 @@ class LiveRoom:
             uid: 主播 UID
         """
         api = API["fans_medal_info"]
+        room_id = await self.get_real_room_id()
         params = {
             "target_id": uid,
-            "page_size": 1
+            "room_id": room_id
         }
         return await request(api["method"], api["url"], params=params, credential=credential_manager)
     
