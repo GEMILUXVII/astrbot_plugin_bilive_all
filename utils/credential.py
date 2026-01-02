@@ -2,34 +2,35 @@
 Bilibili credential management
 """
 
-from typing import Dict, Optional
+from typing import Optional
+
 from ..core.models import Credential
 
 
 class CredentialManager:
     """B站凭据管理器"""
-    
+
     _instance: Optional["CredentialManager"] = None
-    _credential: Optional[Credential] = None
-    _uid_cache: Optional[int] = None
-    
+    _credential: Credential | None = None
+    _uid_cache: int | None = None
+
     def __new__(cls):
         if cls._instance is None:
             cls._instance = super().__new__(cls)
         return cls._instance
-    
+
     @classmethod
     def get_instance(cls) -> "CredentialManager":
         """获取单例实例"""
         if cls._instance is None:
             cls._instance = cls()
         return cls._instance
-    
+
     def set_credential(self, credential: Credential):
         """设置凭据"""
         self._credential = credential
         self._uid_cache = None
-    
+
     def set_credential_from_config(self, sessdata: str, bili_jct: str, buvid3: str = ""):
         """从配置设置凭据"""
         self._credential = Credential(
@@ -38,16 +39,16 @@ class CredentialManager:
             buvid3=buvid3
         )
         self._uid_cache = None
-    
-    def get_credential(self) -> Optional[Credential]:
+
+    def get_credential(self) -> Credential | None:
         """获取凭据"""
         return self._credential
-    
-    def get_cookies(self) -> Dict[str, str]:
+
+    def get_cookies(self) -> dict[str, str]:
         """获取用于请求的 cookies"""
         if self._credential is None:
             return {}
-        
+
         cookies = {}
         if self._credential.sessdata:
             cookies["SESSDATA"] = self._credential.sessdata
@@ -55,9 +56,9 @@ class CredentialManager:
             cookies["bili_jct"] = self._credential.bili_jct
         if self._credential.buvid3:
             cookies["buvid3"] = self._credential.buvid3
-        
+
         return cookies
-    
+
     def is_valid(self) -> bool:
         """检查凭据是否有效"""
         return self._credential is not None and self._credential.is_valid()
@@ -95,6 +96,6 @@ def set_credential(sessdata: str, bili_jct: str, buvid3: str = ""):
     credential_manager.set_credential_from_config(sessdata, bili_jct, buvid3)
 
 
-def get_credential() -> Optional[Credential]:
+def get_credential() -> Credential | None:
     """获取全局凭据"""
     return credential_manager.get_credential()
