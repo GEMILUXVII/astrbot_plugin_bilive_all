@@ -534,7 +534,44 @@ class RoomMonitor:
         # 盲盒盈亏记录
         param["box_profit_diagram"] = await self.db.get_box_profit_records(self.room_id)
 
+        # 排行榜数据（含头像和昵称）
+        await self._add_ranking_data(param, "danmu", 10)
+        await self._add_ranking_data(param, "gift", 10)
+        await self._add_ranking_data(param, "sc", 10)
+        await self._add_ranking_data(param, "box", 10)
+        await self._add_ranking_data(param, "box_profit", 10)
+
         return param
+
+    async def _add_ranking_data(self, param: dict, ranking_type: str, limit: int = 10):
+        """
+        添加排行榜数据到 param（含头像和昵称）
+
+        Args:
+            param: 报告参数字典
+            ranking_type: 排行榜类型
+            limit: 获取条数
+        """
+        from ..utils.user_info import get_unames_and_faces_by_uids
+
+        ranking = await self.get_ranking_data(ranking_type, limit)
+        uids = ranking.get("uids", [])
+        counts = ranking.get("counts", [])
+
+        if not uids:
+            return
+
+        # 获取昵称和头像
+        try:
+            unames, faces = await get_unames_and_faces_by_uids([str(uid) for uid in uids])
+        except Exception:
+            unames = [f"用户{uid}" for uid in uids]
+            faces = []
+
+        param[f"{ranking_type}_ranking_uids"] = uids
+        param[f"{ranking_type}_ranking_counts"] = counts
+        param[f"{ranking_type}_ranking_unames"] = unames
+        param[f"{ranking_type}_ranking_faces"] = faces
 
     async def get_ranking_data(self, ranking_type: str, limit: int = 10) -> dict[str, Any]:
         """

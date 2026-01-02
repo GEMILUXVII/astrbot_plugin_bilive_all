@@ -2,6 +2,16 @@
 
 All notable changes to this project will be documented in this file.
 
+## [v1.1.0] - 2026-01-02
+
+### 新增
+- 排行榜现在显示用户头像和昵称（弹幕、礼物、SC、盲盒排行）
+- 新增渐变进度条排行榜样式
+- 新增盲盒盈亏双向排行榜（红色盈利/绿色亏损）
+- 新增用户信息批量获取模块 `utils/user_info.py`
+- 新增排行榜图片生成器 `painter/ranking_generator.py`
+- 新增默认头像资源 `resources/face.png`
+
 ## [v1.0.3] - 2026-01-02
 
 ### 修复

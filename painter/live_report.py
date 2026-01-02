@@ -267,36 +267,86 @@ class LiveReportGenerator:
 
     @classmethod
     def _draw_rankings(cls, pic: PicGenerator, param: dict[str, Any], config: LiveReport):
-        """绘制排行榜"""
-        rankings = []
+        """绘制排行榜（带头像）"""
+        from .ranking_generator import RankingGenerator
 
+        margin = 50
+        row_space = pic.row_space
+
+        # 弹幕排行
         if config.danmu_ranking > 0:
-            data = param.get("danmu_ranking", [])
-            if data:
-                rankings.append(("弹幕排行", data[:config.danmu_ranking], "条"))
+            faces = param.get("danmu_ranking_faces", [])
+            unames = param.get("danmu_ranking_unames", [])
+            counts = param.get("danmu_ranking_counts", [])
 
+            if counts and faces:
+                limit = min(config.danmu_ranking, len(counts))
+                pic.draw_section(f"弹幕排行 (Top {limit})")
+
+                ranking_img = RankingGenerator.get_ranking(
+                    row_space, faces[:limit], unames[:limit], counts[:limit], pic.width - (margin * 2)
+                )
+                pic.draw_img_alpha(ranking_img)
+
+        # 礼物排行
         if config.gift_ranking > 0:
-            data = param.get("gift_ranking", [])
-            if data:
-                rankings.append(("礼物排行", data[:config.gift_ranking], "元"))
+            faces = param.get("gift_ranking_faces", [])
+            unames = param.get("gift_ranking_unames", [])
+            counts = param.get("gift_ranking_counts", [])
 
+            if counts and faces:
+                limit = min(config.gift_ranking, len(counts))
+                pic.draw_section(f"礼物排行 (Top {limit})")
+
+                ranking_img = RankingGenerator.get_ranking(
+                    row_space, faces[:limit], unames[:limit], counts[:limit], pic.width - (margin * 2)
+                )
+                pic.draw_img_alpha(ranking_img)
+
+        # SC 排行
         if config.sc_ranking > 0:
-            data = param.get("sc_ranking", [])
-            if data:
-                rankings.append(("SC排行", data[:config.sc_ranking], "元"))
+            faces = param.get("sc_ranking_faces", [])
+            unames = param.get("sc_ranking_unames", [])
+            counts = param.get("sc_ranking_counts", [])
 
-        if not rankings:
-            return
+            if counts and faces:
+                limit = min(config.sc_ranking, len(counts))
+                pic.draw_section(f"SC排行 (Top {limit})")
 
-        pic.draw_section("排行榜")
+                ranking_img = RankingGenerator.get_ranking(
+                    row_space, faces[:limit], unames[:limit], counts[:limit], pic.width - (margin * 2)
+                )
+                pic.draw_img_alpha(ranking_img)
 
-        for title, data, unit in rankings:
-            pic.draw_text(f"{title}:")
-            for i, (uid, value) in enumerate(data, 1):
-                if isinstance(value, float):
-                    pic.draw_text(f"  {i}. UID:{uid} - {value:.1f} {unit}")
-                else:
-                    pic.draw_text(f"  {i}. UID:{uid} - {value} {unit}")
+        # 盲盒数量排行
+        if config.box_ranking > 0:
+            faces = param.get("box_ranking_faces", [])
+            unames = param.get("box_ranking_unames", [])
+            counts = param.get("box_ranking_counts", [])
+
+            if counts and faces:
+                limit = min(config.box_ranking, len(counts))
+                pic.draw_section(f"盲盒数量排行 (Top {limit})")
+
+                ranking_img = RankingGenerator.get_ranking(
+                    row_space, faces[:limit], unames[:limit], counts[:limit], pic.width - (margin * 2)
+                )
+                pic.draw_img_alpha(ranking_img)
+
+        # 盲盒盈亏排行（双向）
+        if config.box_profit_ranking > 0:
+            faces = param.get("box_profit_ranking_faces", [])
+            unames = param.get("box_profit_ranking_unames", [])
+            counts = param.get("box_profit_ranking_counts", [])
+
+            if counts and faces:
+                limit = min(config.box_profit_ranking, len(counts))
+                pic.draw_section(f"盲盒盈亏排行 (Top {limit})")
+
+                ranking_img = RankingGenerator.get_double_ranking(
+                    row_space, faces[:limit], unames[:limit], counts[:limit], pic.width - (margin * 2)
+                )
+                pic.draw_img_alpha(ranking_img)
 
     @classmethod
     def _draw_diagrams(cls, pic: PicGenerator, param: dict[str, Any], config: LiveReport):

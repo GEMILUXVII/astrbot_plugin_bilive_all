@@ -29,7 +29,7 @@ PLUGIN_NAME = "bilive_all"
     PLUGIN_NAME,
     "GEMILUXVII",
     "B站直播全功能插件 - 开播/下播提醒、直播数据统计报告",
-    "1.0.3",
+    "1.1.0",
     "https://github.com/GEMILUXVII/astrbot_plugin_bilive_all",
 )
 class BiliLivePlugin(Star):
