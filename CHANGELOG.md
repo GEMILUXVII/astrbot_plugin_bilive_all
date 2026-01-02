@@ -2,6 +2,12 @@
 
 All notable changes to this project will be documented in this file.
 
+## [v1.0.3] - 2026-01-02
+
+### 修复
+- 修复 `credential.py` 中 UID 获取时 credential 参数传递错误的问题
+- 修复插件关闭时网络 session 资源未释放的问题
+
 ## [v1.0.2] - 2026-01-02
 
 ### 修复

@@ -32,7 +32,7 @@ PLUGIN_NAME = "bilive_all"
     PLUGIN_NAME,
     "GEMILUXVII",
     "B站直播全功能插件 - 开播/下播提醒、直播数据统计报告",
-    "1.0.0",
+    "1.0.3",
     "https://github.com/GEMILUXVII/astrbot_plugin_bilive_all",
 )
 class BiliLivePlugin(Star):
@@ -481,6 +481,10 @@ class BiliLivePlugin(Star):
         # 关闭数据库
         if self.db:
             await self.db.close()
+        
+        # 关闭网络 session
+        from .utils.network import close_session
+        await close_session()
         
         logger.info("[BiliLive] 插件已关闭")
 

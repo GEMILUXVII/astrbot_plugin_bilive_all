@@ -78,7 +78,7 @@ class CredentialManager:
             result = await request(
                 "GET",
                 "https://api.bilibili.com/x/web-interface/nav",
-                credential=self,
+                credential=credential_manager,
             )
             self._uid_cache = int(result.get("mid", 0) or 0)
         except Exception:
