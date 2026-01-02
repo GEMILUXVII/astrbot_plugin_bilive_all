@@ -21,6 +21,9 @@
   <a href="https://github.com/GEMILUXVII/astrbot_plugin_bilive_all"><img src="https://img.shields.io/badge/UPDATED-2026.01.01-2196F3?style=for-the-badge" alt="Updated"></a>
 </div>
 
+> [!CAUTION]
+> **实验插件，AI 改写，不推荐使用**
+
 ## 介绍
 
 BiliLive All 是一个基于 AstrBot 开发的 B站直播监控插件，支持开播/下播提醒、直播数据统计报告、弹幕词云生成。
