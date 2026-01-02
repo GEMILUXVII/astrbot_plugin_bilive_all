@@ -27,38 +27,59 @@ try:
     from matplotlib.ticker import MaxNLocator
     from matplotlib import font_manager
     
-    # 配置中文字体
-    # Windows 常用中文字体
-    _chinese_fonts = [
-        'Microsoft YaHei',  # 微软雅黑
-        'SimHei',           # 黑体
-        'SimSun',           # 宋体
-        'KaiTi',            # 楷体
-        'FangSong',         # 仿宋
-        'Source Han Sans CN',  # 思源黑体
-        'Noto Sans CJK SC',    # Noto 黑体
-    ]
+    # 获取插件资源目录中的字体
+    _RESOURCES_DIR = Path(__file__).parent.parent / "resources"
+    _FONT_PATH = _RESOURCES_DIR / "normal.ttf"
+    _BOLD_FONT_PATH = _RESOURCES_DIR / "bold.ttf"
     
     _font_set = False
-    for font_name in _chinese_fonts:
+    
+    # 优先使用插件自带字体
+    if _FONT_PATH.exists():
         try:
-            # 检查字体是否存在
-            font_path = font_manager.findfont(font_name, fallback_to_default=False)
-            if font_path and 'DejaVu' not in font_path:
-                plt.rcParams['font.sans-serif'] = [font_name] + plt.rcParams.get('font.sans-serif', [])
-                plt.rcParams['axes.unicode_minus'] = False  # 解决负号显示问题
-                _font_set = True
-                break
+            font_manager.fontManager.addfont(str(_FONT_PATH))
+            # 获取字体名称
+            font_props = font_manager.FontProperties(fname=str(_FONT_PATH))
+            font_name = font_props.get_name()
+            plt.rcParams['font.sans-serif'] = [font_name] + plt.rcParams.get('font.sans-serif', [])
+            plt.rcParams['axes.unicode_minus'] = False
+            _font_set = True
         except Exception:
-            continue
+            pass
     
     if not _font_set:
-        # 如果找不到中文字体，尝试使用系统字体
-        plt.rcParams['font.sans-serif'] = _chinese_fonts + plt.rcParams.get('font.sans-serif', [])
-        plt.rcParams['axes.unicode_minus'] = False
+        # 尝试系统中文字体
+        _chinese_fonts = [
+            'Microsoft YaHei',  # 微软雅黑
+            'SimHei',           # 黑体
+            'SimSun',           # 宋体
+            'KaiTi',            # 楷体
+            'FangSong',         # 仿宋
+            'Source Han Sans CN',  # 思源黑体
+            'Noto Sans CJK SC',    # Noto 黑体
+            'WenQuanYi Micro Hei', # 文泉驿微米黑
+            'Droid Sans Fallback', # Droid 字体
+        ]
+        
+        for font_name in _chinese_fonts:
+            try:
+                font_path = font_manager.findfont(font_name, fallback_to_default=False)
+                if font_path and 'DejaVu' not in font_path:
+                    plt.rcParams['font.sans-serif'] = [font_name] + plt.rcParams.get('font.sans-serif', [])
+                    plt.rcParams['axes.unicode_minus'] = False
+                    _font_set = True
+                    break
+            except Exception:
+                continue
+        
+        if not _font_set:
+            plt.rcParams['font.sans-serif'] = _chinese_fonts + plt.rcParams.get('font.sans-serif', [])
+            plt.rcParams['axes.unicode_minus'] = False
         
 except ImportError:
     plt = None
+    _FONT_PATH = None
+    _BOLD_FONT_PATH = None
 
 from PIL import Image
 
@@ -134,50 +155,61 @@ class LiveReportGenerator:
             if config.fans_change:
                 fans_before = param.get('fans_before', -1)
                 fans_after = param.get('fans_after', -1)
-                if fans_before == -1:
-                    fans_before = "?"
-                    diff = 0
-                else:
+                
+                # 处理无效数据
+                before_str = "?" if fans_before == -1 else str(fans_before)
+                after_str = "?" if fans_after == -1 else str(fans_after)
+                
+                # 只有两者都有效时才计算差值
+                if fans_before != -1 and fans_after != -1:
                     diff = fans_after - fans_before
+                else:
+                    diff = 0
                     
                 if diff > 0:
-                    pic.draw_text([f"粉丝: {fans_before} → {fans_after} ", f"(+{diff})"], [Color.BLACK, Color.RED])
+                    pic.draw_text([f"粉丝: {before_str} → {after_str} ", f"(+{diff})"], [Color.BLACK, Color.RED])
                 elif diff < 0:
-                    pic.draw_text([f"粉丝: {fans_before} → {fans_after} ", f"({diff})"], [Color.BLACK, Color.GREEN])
+                    pic.draw_text([f"粉丝: {before_str} → {after_str} ", f"({diff})"], [Color.BLACK, Color.GREEN])
                 else:
-                    pic.draw_text([f"粉丝: {fans_before} → {fans_after} ", f"(+0)"], [Color.BLACK, Color.GRAY])
+                    pic.draw_text([f"粉丝: {before_str} → {after_str} ", f"(+0)"], [Color.BLACK, Color.GRAY])
             
             if config.fans_medal_change:
                 medal_before = param.get('fans_medal_before', -1)
                 medal_after = param.get('fans_medal_after', -1)
-                if medal_before == -1:
-                    medal_before = "?"
-                    diff = 0
-                else:
+                
+                before_str = "?" if medal_before == -1 else str(medal_before)
+                after_str = "?" if medal_after == -1 else str(medal_after)
+                
+                if medal_before != -1 and medal_after != -1:
                     diff = medal_after - medal_before
+                else:
+                    diff = 0
                     
                 if diff > 0:
-                    pic.draw_text([f"粉丝团: {medal_before} → {medal_after} ", f"(+{diff})"], [Color.BLACK, Color.RED])
+                    pic.draw_text([f"粉丝团: {before_str} → {after_str} ", f"(+{diff})"], [Color.BLACK, Color.RED])
                 elif diff < 0:
-                    pic.draw_text([f"粉丝团: {medal_before} → {medal_after} ", f"({diff})"], [Color.BLACK, Color.GREEN])
+                    pic.draw_text([f"粉丝团: {before_str} → {after_str} ", f"({diff})"], [Color.BLACK, Color.GREEN])
                 else:
-                    pic.draw_text([f"粉丝团: {medal_before} → {medal_after} ", f"(+0)"], [Color.BLACK, Color.GRAY])
+                    pic.draw_text([f"粉丝团: {before_str} → {after_str} ", f"(+0)"], [Color.BLACK, Color.GRAY])
             
             if config.guard_change:
                 guard_before = param.get('guard_before', -1)
                 guard_after = param.get('guard_after', -1)
-                if guard_before == -1:
-                    guard_before = "?"
-                    diff = 0
-                else:
+                
+                before_str = "?" if guard_before == -1 else str(guard_before)
+                after_str = "?" if guard_after == -1 else str(guard_after)
+                
+                if guard_before != -1 and guard_after != -1:
                     diff = guard_after - guard_before
+                else:
+                    diff = 0
                     
                 if diff > 0:
-                    pic.draw_text([f"大航海: {guard_before} → {guard_after} ", f"(+{diff})"], [Color.BLACK, Color.RED])
+                    pic.draw_text([f"大航海: {before_str} → {after_str} ", f"(+{diff})"], [Color.BLACK, Color.RED])
                 elif diff < 0:
-                    pic.draw_text([f"大航海: {guard_before} → {guard_after} ", f"({diff})"], [Color.BLACK, Color.GREEN])
+                    pic.draw_text([f"大航海: {before_str} → {after_str} ", f"({diff})"], [Color.BLACK, Color.GREEN])
                 else:
-                    pic.draw_text([f"大航海: {guard_before} → {guard_after} ", f"(+0)"], [Color.BLACK, Color.GRAY])
+                    pic.draw_text([f"大航海: {before_str} → {after_str} ", f"(+0)"], [Color.BLACK, Color.GRAY])
         
         # 直播数据
         has_data = config.danmu or config.gift or config.sc or config.box or config.guard
@@ -339,6 +371,11 @@ class LiveReportGenerator:
             for w in words:
                 word_freq[w] = word_freq.get(w, 0) + 1
             
+            # 获取字体路径用于词云
+            wc_font_path = None
+            if _FONT_PATH and _FONT_PATH.exists():
+                wc_font_path = str(_FONT_PATH)
+            
             wc = WordCloud(
                 width=800,
                 height=400,
@@ -347,6 +384,7 @@ class LiveReportGenerator:
                 prefer_horizontal=0.7,
                 min_font_size=10,
                 max_font_size=100,
+                font_path=wc_font_path,
             )
             wc.generate_from_frequencies(word_freq)
             
